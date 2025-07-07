@@ -1,0 +1,135 @@
+{
+  "name": "codepair",
+  "displayName": "CodePair - Collaborative Pair Programming",
+  "description": "Real-time collaborative pair programming with Yjs",
+  "version": "1.0.2",
+  "publisher": "codepair-team",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "collaboration",
+    "pair-programming",
+    "real-time",
+    "yjs",
+    "websocket"
+  ],
+  "activationEvents": [
+    "onCommand:codepair.startCollaboration",
+    "onCommand:codepair.joinCollaboration",
+    "onCommand:codepair.stopCollaboration",
+    "onCommand:codepair.showStatus",
+    "onCommand:codepair.showParticipants",
+    "onCommand:codepair.copyRoomId"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codepair.startCollaboration",
+        "title": "CodePair: Start Collaboration",
+        "category": "CodePair"
+      },
+      {
+        "command": "codepair.joinCollaboration",
+        "title": "CodePair: Join Collaboration",
+        "category": "CodePair"
+      },
+      {
+        "command": "codepair.stopCollaboration",
+        "title": "CodePair: Stop Collaboration",
+        "category": "CodePair"
+      },
+      {
+        "command": "codepair.showStatus",
+        "title": "CodePair: Show Status",
+        "category": "CodePair"
+      },
+      {
+        "command": "codepair.showParticipants",
+        "title": "CodePair: Show Participants",
+        "category": "CodePair"
+      },
+      {
+        "command": "codepair.copyRoomId",
+        "title": "CodePair: Copy Room ID",
+        "category": "CodePair"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "codepair.startCollaboration"
+        },
+        {
+          "command": "codepair.joinCollaboration"
+        },
+        {
+          "command": "codepair.stopCollaboration"
+        },
+        {
+          "command": "codepair.showStatus"
+        },
+        {
+          "command": "codepair.showParticipants"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "codepair.copyRoomId",
+          "when": "codepair.isCollaborating",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodePair",
+      "properties": {
+        "codepair.serverUrl": {
+          "type": "string",
+          "default": "ws://localhost:3001",
+          "description": "WebSocket server URL for collaboration"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^16.18.0",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^5.42.0",
+    "@typescript-eslint/parser": "^5.42.0",
+    "esbuild": "^0.25.6",
+    "eslint": "^8.26.0",
+    "typescript": "^4.8.4",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "y-prosemirror": "^1.2.4",
+    "y-websocket": "^1.5.0",
+    "yjs": "^13.6.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/codepair.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-repo/codepair/issues"
+  },
+  "homepage": "https://github.com/your-repo/codepair#readme",
+  "license": "MIT"
+}

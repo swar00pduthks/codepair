@@ -1,0 +1,1 @@
+{"version":3,"file":"setup.d.ts","sourceRoot":"","sources":["../src/setup.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,SAAS,EAAE,MAAM,IAAI,CAAC;AAO/B,wBAAgB,cAAc,CAC5B,EAAE,EAAE,SAAS,EACb,MAAM,EAAE,MAAM,EACd,aAAa,EAAE,MAAM,EACrB,eAAe,EAAE,MAAM,EACvB,cAAc,CAAC,EAAE,MAAM,GACtB,IAAI,CAsEN;AAiGD,wBAAgB,eAAe,CAAC,MAAM,EAAE,MAAM,GAAG,IAAI,CAOpD"}

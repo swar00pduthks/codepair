@@ -3,6 +3,8 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import WS from 'ws';
 import fetch from 'node-fetch';
+import { exec } from 'child_process';
+import * as path from 'path';
 
 interface Participant {
     id: string;
@@ -64,6 +66,10 @@ export class CollaborationManager {
         // Get participant information
         await this.getParticipantInfo();
 
+        // Get repo URL and file path
+        const repoUrl = await this.getGitRepoUrl();
+        const filePath = vscode.workspace.asRelativePath(editor.document.uri.fsPath);
+
         try {
             this.outputChannel.appendLine('Starting collaboration...');
             
@@ -77,21 +83,21 @@ export class CollaborationManager {
             this.doc = new Y.Doc();
             const ytext = this.doc.getText('content');
 
-            // Get server URL from configuration with error handling
-            let serverUrl = 'ws://localhost:3001';
-            try {
-                serverUrl = vscode.workspace.getConfiguration('codepair').get('serverUrl', 'ws://localhost:3001') as string;
-            } catch (error) {
-                this.outputChannel.appendLine(`Warning: Could not read workspace configuration, using default server URL: ${error}`);
-            }
-            const httpUrl = serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+            // Get server URL from configuration
+            const serverUrl = vscode.workspace.getConfiguration('codepair').get('serverUrl', 'ws://localhost:3001');
 
             // Set up WebSocket provider with participant info
-            const wsUrl = `${serverUrl}?room=${roomId}&name=${encodeURIComponent(this.participantName)}${this.githubUsername ? `&github=${encodeURIComponent(this.githubUsername)}` : ''}`;
+            const wsUrl = `${serverUrl}?room=${roomId}&name=${encodeURIComponent(this.participantName)}${this.githubUsername ? `&github=${encodeURIComponent(String(this.githubUsername ?? ''))}` : ''}`;
             this.provider = new WebsocketProvider(serverUrl, roomId, this.doc, {
                 WebSocketPolyfill: WS
             });
             this.roomId = roomId;
+
+            // Broadcast repo URL and file path via awareness
+            if (this.provider && this.provider.awareness) {
+                this.provider.awareness.setLocalStateField('repoUrl', repoUrl);
+                this.provider.awareness.setLocalStateField('filePath', filePath);
+            }
 
             // Set up document synchronization
             this.setupDocumentSync(editor, ytext);
@@ -135,6 +141,68 @@ export class CollaborationManager {
             throw new Error('Already collaborating');
         }
 
+        // Listen for awareness updates before connecting
+        let repoUrl: string | undefined;
+        let filePath: string | undefined;
+        let awarenessListener: any;
+
+        const onAwarenessUpdate = (states: any) => {
+            for (const key in states) {
+                const state = states[key];
+                if (state.repoUrl && state.filePath) {
+                    repoUrl = state.repoUrl;
+                    filePath = state.filePath;
+                    break;
+                }
+            }
+        };
+
+        // Set up a temporary Yjs doc/provider to listen for awareness
+        const tempDoc = new Y.Doc();
+        const serverUrl = vscode.workspace.getConfiguration('codepair').get('serverUrl', 'ws://localhost:3001');
+        const tempProvider = new WebsocketProvider(serverUrl, roomId, tempDoc, {
+            WebSocketPolyfill: WS
+        });
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for awareness to sync
+        if (tempProvider.awareness) {
+            const states = tempProvider.awareness.getStates();
+            onAwarenessUpdate(states);
+        }
+        tempProvider.destroy();
+        tempDoc.destroy();
+
+        // Prompt to clone repo if needed
+        if (typeof repoUrl === 'string' && repoUrl.length > 0) {
+            const shouldClone = await vscode.window.showInformationMessage(
+                `This CodePair session uses the repository: ${repoUrl}. Would you like to clone it?`,
+                'Clone Now', 'Cancel'
+            );
+            if (shouldClone === 'Clone Now') {
+                const folderUris = await vscode.window.showOpenDialog({
+                    canSelectFolders: true,
+                    openLabel: 'Select folder to clone into'
+                });
+                if (folderUris && folderUris.length > 0) {
+                    const folderPath = folderUris[0].fsPath;
+                    await this.cloneRepo(repoUrl, folderPath);
+                    // Open the cloned folder
+                    const repoName = path.basename(repoUrl, '.git');
+                    const repoFolder = path.join(folderPath, repoName);
+                    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(repoFolder), true);
+                    // Open the file after a short delay
+                    if (filePath) {
+                        setTimeout(() => {
+                            vscode.workspace.openTextDocument(path.join(repoFolder, filePath)).then(doc => {
+                                vscode.window.showTextDocument(doc);
+                            });
+                        }, 2000);
+                    }
+                    return; // Stop here, as the window will reload
+                }
+            }
+        }
+
+        // If repo is not present, just connect as usual
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             throw new Error('No active text editor');
@@ -150,17 +218,8 @@ export class CollaborationManager {
             this.doc = new Y.Doc();
             const ytext = this.doc.getText('content');
 
-            // Get server URL from configuration with error handling
-            let serverUrl = 'ws://localhost:3001';
-            try {
-                serverUrl = vscode.workspace.getConfiguration('codepair').get('serverUrl', 'ws://localhost:3001') as string;
-            } catch (error) {
-                this.outputChannel.appendLine(`Warning: Could not read workspace configuration, using default server URL: ${error}`);
-            }
-            const httpUrl = serverUrl.replace('ws://', 'http://').replace('wss://', 'https://');
-
             // Set up WebSocket provider with participant info
-            const wsUrl = `${serverUrl}?room=${roomId}&name=${encodeURIComponent(this.participantName)}${this.githubUsername ? `&github=${encodeURIComponent(this.githubUsername)}` : ''}`;
+            const wsUrl = `${serverUrl}?room=${roomId}&name=${encodeURIComponent(this.participantName)}${this.githubUsername ? `&github=${encodeURIComponent(String(this.githubUsername ?? ''))}` : ''}`;
             this.provider = new WebsocketProvider(serverUrl, roomId, this.doc, {
                 WebSocketPolyfill: WS
             });
@@ -261,14 +320,19 @@ export class CollaborationManager {
 
     private setupDocumentSync(editor: vscode.TextEditor, ytext: Y.Text): void {
         if (!this.doc) return;
+        const participantId = this.participantId || '';
 
-        // Sync initial content
+        // Sync initial content (use applyDelta for initial sync)
         const currentContent = editor.document.getText();
         ytext.delete(0, ytext.length);
         ytext.insert(0, currentContent);
 
         // Listen for Yjs changes and apply to VS Code
         ytext.observe((event: Y.YTextEvent) => {
+            // Ignore changes that originated from this client
+            if ((event as any).origin === participantId) {
+                return;
+            }
             event.changes.delta.forEach((delta: any) => {
                 if (delta.insert) {
                     // Handle insertions
@@ -290,16 +354,21 @@ export class CollaborationManager {
         // Listen for VS Code changes and apply to Yjs
         const changeDisposable = vscode.workspace.onDidChangeTextDocument((event: vscode.TextDocumentChangeEvent) => {
             if (event.document === editor.document) {
+                const origin: string = (this.participantId !== null && this.participantId !== undefined) ? this.participantId : '';
                 event.contentChanges.forEach((change: vscode.TextDocumentContentChangeEvent) => {
                     if (change.rangeLength > 0) {
                         // Deletion
                         const index = this.getIndexFromPosition(editor.document, change.range.start);
-                        ytext.delete(index, change.rangeLength);
+                        this.doc?.transact(() => {
+                            ytext.delete(index, change.rangeLength);
+                        }, origin as any);
                     }
                     if (change.text) {
                         // Insertion
                         const index = this.getIndexFromPosition(editor.document, change.range.start);
-                        ytext.insert(index, change.text);
+                        this.doc?.transact(() => {
+                            ytext.insert(index, change.text);
+                        }, origin as any);
                     }
                 });
             }
@@ -499,5 +568,37 @@ export class CollaborationManager {
         this.stateChangeCallbacks = [];
         this.statusBarItem.dispose();
         this.outputChannel.dispose();
+    }
+
+    private async getGitRepoUrl(): Promise<string | undefined> {
+        return new Promise((resolve) => {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                resolve(undefined);
+                return;
+            }
+            const cwd = workspaceFolders[0].uri.fsPath;
+            exec('git remote get-url origin', { cwd }, (err, stdout) => {
+                if (err) {
+                    resolve(undefined);
+                } else {
+                    resolve(stdout.trim());
+                }
+            });
+        });
+    }
+
+    private async cloneRepo(repoUrl: string, folderPath: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            exec(`git clone ${repoUrl}`, { cwd: folderPath }, (err, stdout, stderr) => {
+                if (err) {
+                    vscode.window.showErrorMessage(`Failed to clone repo: ${stderr}`);
+                    reject(err);
+                } else {
+                    vscode.window.showInformationMessage(`Cloned repo to ${folderPath}`);
+                    resolve();
+                }
+            });
+        });
     }
 } 

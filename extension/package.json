@@ -2,7 +2,7 @@
   "name": "codepair",
   "displayName": "CodePair - Collaborative Pair Programming",
   "description": "Real-time collaborative pair programming with Yjs",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "codepair-team",
   "engines": {
     "vscode": "^1.74.0"
@@ -97,7 +97,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js",
     "watch": "tsc -watch -p ./",

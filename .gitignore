@@ -1,0 +1,5 @@
+# Ignore VS Code extension packages
+*.vsix
+
+# Ignore build output directory
+out/ 
